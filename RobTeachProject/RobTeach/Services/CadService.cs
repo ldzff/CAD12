@@ -35,9 +35,9 @@ namespace RobTeach.Services
             }
         }
         
-        public List<System.Windows.Shapes.Shape?> GetWpfShapesFromDxf(DxfFile dxfFile) // Allow null shapes in list
+        public List<(DxfEntity, System.Windows.Shapes.Shape?)> GetWpfShapesFromDxf(DxfFile dxfFile)
         {
-            var wpfShapes = new List<System.Windows.Shapes.Shape?>(); // Allow null shapes in list
+            var wpfShapes = new List<(DxfEntity, System.Windows.Shapes.Shape?)>();
             if (dxfFile == null)
             {
                 AppLogger.Log("[CadService] GetWpfShapesFromDxf: dxfFile is null. Returning empty list.", LogLevel.Warning);
@@ -110,15 +110,17 @@ namespace RobTeach.Services
                                     {
                                         var tempFile = new DxfFile();
                                         tempFile.Entities.Add(transformedEntity);
-                                        var blockShape = GetWpfShapesFromDxf(tempFile).FirstOrDefault();
-                                        if (blockShape != null)
+                                        var blockShapes = GetWpfShapesFromDxf(tempFile);
+                                        foreach (var (ent, shp) in blockShapes)
                                         {
-                                            wpfShapes.Add(blockShape);
-                                            AppLogger.Log($"[CadService]   Converted block entity {blockEntity.GetType().Name}", LogLevel.Debug);
+                                            if (shp != null)
+                                            {
+                                                wpfShapes.Add((ent, shp));
+                                                AppLogger.Log($"[CadService]   Converted block entity {ent.GetType().Name}", LogLevel.Debug);
+                                            }
                                         }
                                     }
                                 }
-                                wpfShape = null; // Skip adding the insert itself since we added its contents
                             }
                             break;
 
@@ -135,7 +137,11 @@ namespace RobTeach.Services
 
                 if (wpfShape != null)
                 {
-                    wpfShapes.Add(wpfShape);
+                    wpfShapes.Add((entity, wpfShape));
+                }
+                else
+                {
+                    wpfShapes.Add((entity, null));
                 }
                 entityCounter++;
             }

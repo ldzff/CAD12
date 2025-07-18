@@ -16,7 +16,7 @@ namespace RobTeach.Models
         /// Gets or sets the handle of the original CAD entity from which this trajectory was derived.
         /// This helps in linking the trajectory back to its source in the DXF document.
         /// </summary>
-        public string OriginalEntityHandle { get; set; } = string.Empty; // May become redundant if OriginalDxfEntity is used primarily
+        public string OriginalEntityHandle { get; set; } = string.Empty;
 
         /// <summary>
         /// Stores the original DXF entity object. This is not serialized to JSON.

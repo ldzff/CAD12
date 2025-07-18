@@ -64,7 +64,6 @@ namespace RobTeach.Views
         private readonly List<DxfEntity> _selectedDxfEntities = new List<DxfEntity>(); // Stores original DXF entities selected by the user.
         // Qualified System.Windows.Shapes.Shape for dictionary key
         private readonly Dictionary<System.Windows.Shapes.Shape, DxfEntity> _wpfShapeToDxfEntityMap = new Dictionary<System.Windows.Shapes.Shape, DxfEntity>(); // Changed to DxfEntity
-        private readonly Dictionary<string, DxfEntity> _dxfEntityHandleMap = new Dictionary<string, DxfEntity>(); // Maps DXF entity handles to entities for quick lookup when loading configs.
         private readonly List<System.Windows.Shapes.Polyline> _trajectoryPreviewPolylines = new List<System.Windows.Shapes.Polyline>(); // Keeps track of trajectory preview polylines for easy removal.
         private List<DirectionIndicator> _directionIndicators; // Field for the direction indicator arrow
         private List<System.Windows.Controls.TextBlock> _orderNumberLabels = new List<System.Windows.Controls.TextBlock>();
@@ -1593,128 +1592,6 @@ namespace RobTeach.Views
             }
         }
 
-        /// <summary>
-        /// Handles the Click event of the "Load DXF" button.
-        /// Prompts the user to select a DXF file, loads it using <see cref="CadService"/>,
-        /// processes its entities for display, and fits the view to the loaded drawing.
-        /// </summary>
-        private void DrawDxfEntities()
-        {
-            if (_currentDxfDocument == null)
-            {
-                AppLogger.Log("DrawDxfEntities: No DXF document loaded.", LogLevel.Warning);
-                return;
-            }
-
-            AppLogger.Log("=== Drawing DXF Entities ===", LogLevel.Info);
-            foreach (var entity in _currentDxfDocument.Entities)
-            {
-                System.Windows.Shapes.Shape? shape = null;
-
-                if (entity is DxfLine line)
-                {
-                    var wpfLine = new System.Windows.Shapes.Line
-                    {
-                        X1 = line.P1.X,
-                        Y1 = line.P1.Y,
-                        X2 = line.P2.X,
-                        Y2 = line.P2.Y,
-                        Stroke = DefaultStrokeBrush,
-                        StrokeThickness = DefaultStrokeThickness
-                    };
-                    shape = wpfLine;
-                    AppLogger.Log($"Drawing Line: ({line.P1.X:F2}, {line.P1.Y:F2}) to ({line.P2.X:F2}, {line.P2.Y:F2})", LogLevel.Info);
-                }
-                else if (entity is DxfCircle circle)
-                {
-                    var wpfEllipse = new System.Windows.Shapes.Ellipse
-                    {
-                        Width = circle.Radius * 2,
-                        Height = circle.Radius * 2,
-                        Stroke = DefaultStrokeBrush,
-                        StrokeThickness = DefaultStrokeThickness,
-                        Fill = null
-                    };
-                    Canvas.SetLeft(wpfEllipse, circle.Center.X - circle.Radius);
-                    Canvas.SetTop(wpfEllipse, circle.Center.Y - circle.Radius);
-                    shape = wpfEllipse;
-                    AppLogger.Log($"Drawing Circle: Center({circle.Center.X:F2}, {circle.Center.Y:F2}), Radius={circle.Radius:F2}", LogLevel.Info);
-                }
-                else if (entity is DxfArc arc)
-                {
-                    var pathGeometry = new PathGeometry();
-                    var pathFigure = new PathFigure();
-                    
-                    // Convert angles to radians
-                    double startAngle = arc.StartAngle * Math.PI / 180.0;
-                    double endAngle = arc.EndAngle * Math.PI / 180.0;
-                    
-                    // Calculate start point
-                    double startX = arc.Center.X + arc.Radius * Math.Cos(startAngle);
-                    double startY = arc.Center.Y + arc.Radius * Math.Sin(startAngle);
-                    pathFigure.StartPoint = new Point(startX, startY);
-
-                    // Create the arc segment
-                    var arcSegment = new ArcSegment
-                    {
-                        Point = new Point(
-                            arc.Center.X + arc.Radius * Math.Cos(endAngle),
-                            arc.Center.Y + arc.Radius * Math.Sin(endAngle)),
-                        Size = new Size(arc.Radius, arc.Radius),
-                        IsLargeArc = Math.Abs(endAngle - startAngle) > Math.PI,
-                        SweepDirection = endAngle > startAngle ? SweepDirection.Clockwise : SweepDirection.Counterclockwise
-                    };
-
-                    pathFigure.Segments.Add(arcSegment);
-                    pathGeometry.Figures.Add(pathFigure);
-
-                    var path = new System.Windows.Shapes.Path
-                    {
-                        Data = pathGeometry,
-                        Stroke = DefaultStrokeBrush,
-                        StrokeThickness = DefaultStrokeThickness
-                    };
-                    shape = path;
-                    AppLogger.Log($"Drawing Arc: Center({arc.Center.X:F2}, {arc.Center.Y:F2}), Radius={arc.Radius:F2}, Angles={arc.StartAngle:F2} to {arc.EndAngle:F2}", LogLevel.Info);
-                }
-                else if (entity is DxfLwPolyline polyline)
-                {
-                    var points = new PointCollection();
-                    foreach (var vertex in polyline.Vertices)
-                    {
-                        points.Add(new Point(vertex.X, vertex.Y));
-                    }
-
-                    if (polyline.IsClosed && points.Count > 0)
-                    {
-                        points.Add(points[0]); // Close the polyline by adding the first point again
-                    }
-
-                    var wpfPolyline = new System.Windows.Shapes.Polyline
-                    {
-                        Points = points,
-                        Stroke = DefaultStrokeBrush,
-                        StrokeThickness = DefaultStrokeThickness
-                    };
-                    shape = wpfPolyline;
-                    AppLogger.Log($"Drawing Polyline: {polyline.Vertices.Count} vertices, Closed={polyline.IsClosed}", LogLevel.Info);
-                }
-
-                if (shape != null)
-                {
-                    // Generate a unique identifier for the entity
-                    string entityId = Guid.NewGuid().ToString();
-                    shape.Tag = entityId;
-                    shape.MouseLeftButtonDown += OnCadEntityClicked;
-                    CadCanvas.Children.Add(shape);
-                    _wpfShapeToDxfEntityMap[shape] = entity;
-                    _dxfEntityHandleMap[entityId] = entity;
-                }
-            }
-
-            AppLogger.Log($"Total entities drawn: {CadCanvas.Children.Count}", LogLevel.Info);
-        }
-
         private void LoadDxfButton_Click(object sender, RoutedEventArgs e)
         {
             if (!PromptAndTrySaveChanges())
@@ -1735,7 +1612,6 @@ namespace RobTeach.Views
                     // Reset all selections and configurations
                     _selectedDxfEntities.Clear();
                     _wpfShapeToDxfEntityMap.Clear();
-                    _dxfEntityHandleMap.Clear();
                     _trajectoryPreviewPolylines.Clear();
                     _currentConfiguration = new Models.Configuration();
                     ProductNameTextBox.Text = $"Product_{DateTime.Now:yyyyMMddHHmmss}";
@@ -1782,11 +1658,11 @@ namespace RobTeach.Views
                     // Clear existing content
                     CadCanvas.Children.Clear();
                     _wpfShapeToDxfEntityMap.Clear();
-                    _dxfEntityHandleMap.Clear();
 
                     // Draw entities and update UI
-                    DrawDxfEntities();
-                        PerformFitToView();
+                    var wpfShapesAndEntities = _cadService.GetWpfShapesFromDxf(_currentDxfDocument);
+                    UpdateShapesOnCanvas(wpfShapesAndEntities);
+                    PerformFitToView();
                     
                     // Log canvas information
                     AppLogger.Log($"=== Canvas Information ===", LogLevel.Info);
@@ -1975,6 +1851,7 @@ namespace RobTeach.Views
                     var newTrajectory = new Trajectory
                     {
                         OriginalDxfEntity = dxfEntity,
+                        OriginalEntityHandle = dxfEntity.Handle.ToString("X"),
                         EntityType = dxfEntity.GetType().Name, // General type, can be overridden by PrimitiveType
                         IsReversed = false // Default, can be changed by specific logic below or UI
                     };
@@ -2321,41 +2198,24 @@ namespace RobTeach.Views
                             if (_currentDxfDocument != null)
                             {
                                 // Debug.WriteLine($"[JULES_DEBUG] Drawing Shapes: Document has {_currentDxfDocument.Entities.Count()} entities.");
-                                List<System.Windows.Shapes.Shape> wpfShapes = _cadService.GetWpfShapesFromDxf(_currentDxfDocument);
+                                var wpfShapesAndEntities = _cadService.GetWpfShapesFromDxf(_currentDxfDocument);
                                 // Debug.WriteLine($"[JULES_DEBUG] Drawing Shapes: CadService.GetWpfShapesFromDxf returned {wpfShapes.Count} shapes.");
-                                int shapeIndex = 0;
-                                int entityIndex = 0;
-                                foreach(var entity in _currentDxfDocument.Entities)
+
+                                foreach(var (entity, wpfShape) in wpfShapesAndEntities)
                                 {
-                                    // string entityIdentifier = $"EntityType: {entity.GetType().Name}, Handle: {entity.Handle.ToString("X")}"; // Removed: Causes compile error
-                                    // Debug.WriteLine($"[JULES_DEBUG] Drawing Shapes: Processing DXF Entity at index {entityIndex} (C# type: {entity.GetType().Name})");
-                                    if (shapeIndex < wpfShapes.Count)
+                                    if (wpfShape != null)
                                     {
-                                        var wpfShape = wpfShapes[shapeIndex];
-                                        if (wpfShape != null)
-                                        {
-                                            // Debug.WriteLine($"[JULES_DEBUG] Drawing Shapes: WPF Shape for Entity at index {entityIndex} is {wpfShape.GetType().Name}. Adding to canvas and map.");
-                                            wpfShape.Stroke = DefaultStrokeBrush;
-                                            wpfShape.StrokeThickness = DefaultStrokeThickness;
-                                            wpfShape.MouseLeftButtonDown += OnCadEntityClicked;
-                                            _wpfShapeToDxfEntityMap[wpfShape] = entity;
-                                            CadCanvas.Children.Add(wpfShape);
-                                        }
-                                        else
-                                        {
-                                            // Debug.WriteLine($"[JULES_DEBUG] Drawing Shapes: WPF Shape for Entity at index {entityIndex} (C# type: {entity.GetType().Name}) is NULL from CadService.");
-                                        }
+                                        // Debug.WriteLine($"[JULES_DEBUG] Drawing Shapes: WPF Shape for Entity at index {entityIndex} is {wpfShape.GetType().Name}. Adding to canvas and map.");
+                                        wpfShape.Stroke = DefaultStrokeBrush;
+                                        wpfShape.StrokeThickness = DefaultStrokeThickness;
+                                        wpfShape.MouseLeftButtonDown += OnCadEntityClicked;
+                                        _wpfShapeToDxfEntityMap[wpfShape] = entity;
+                                        CadCanvas.Children.Add(wpfShape);
                                     }
                                     else
                                     {
-                                        // Debug.WriteLine($"[JULES_DEBUG] Drawing Shapes: No corresponding WPF shape in list for Entity at index {entityIndex} (C# type: {entity.GetType().Name}). Shape list too short.");
+                                        // Debug.WriteLine($"[JULES_DEBUG] Drawing Shapes: WPF Shape for Entity at index {entityIndex} (C# type: {entity.GetType().Name}) is NULL from CadService.");
                                     }
-                                    shapeIndex++;
-                                    entityIndex++;
-                                }
-                                if (wpfShapes.Count != _currentDxfDocument.Entities.Count()) // CadService now returns list with nulls, so counts should match. This log indicates if not.
-                                {
-                                     // Debug.WriteLine($"[JULES_DEBUG] Drawing Shapes: WARNING - Entity count ({_currentDxfDocument.Entities.Count()}) and WPF shapes list count ({wpfShapes.Count}) do not match. This is unexpected if CadService pads with nulls.");
                                 }
                                 _dxfBoundingBox = GetDxfBoundingBox(_currentDxfDocument);
                                 PerformFitToView();
@@ -3584,84 +3444,6 @@ namespace RobTeach.Views
                    Math.Abs(p1.Z - p2.Z) < tolerance;
         }
 
-        private bool AreEntitiesGeometricallyEquivalent(DxfEntity entity1, DxfEntity entity2, double tolerance = 0.001)
-        {
-            if (entity1 == null || entity2 == null)
-            {
-                Debug.WriteLineIf(entity1 == null || entity2 == null, $"[DEBUG] AreEntitiesGeometricallyEquivalent: One or both entities are null. Entity1: {(entity1 == null ? "null" : entity1.GetType().Name)}, Entity2: {(entity2 == null ? "null" : entity2.GetType().Name)}");
-                return false;
-            }
-            if (entity1.GetType() != entity2.GetType())
-            {
-                Debug.WriteLine($"[DEBUG] AreEntitiesGeometricallyEquivalent: Entity types differ: {entity1.GetType().Name} vs {entity2.GetType().Name}");
-                return false;
-            }
-
-            Debug.WriteLine($"[DEBUG] AreEntitiesGeometricallyEquivalent: Comparing two {entity1.GetType().Name}");
-
-            switch (entity1)
-            {
-                case DxfLine line1 when entity2 is DxfLine line2:
-                    bool p1p1 = PointEquals(line1.P1, line2.P1, tolerance);
-                    bool p2p2 = PointEquals(line1.P2, line2.P2, tolerance);
-                    bool p1p2 = PointEquals(line1.P1, line2.P2, tolerance);
-                    bool p2p1 = PointEquals(line1.P2, line2.P1, tolerance);
-                    Debug.WriteLine($"[DEBUG] LineCompare: L1P1={line1.P1}, L1P2={line1.P2} | L2P1={line2.P1}, L2P2={line2.P2}");
-                    Debug.WriteLine($"[DEBUG] LineCompare: (P1s match: {p1p1}, P2s match: {p2p2}) OR (P1-L2P2 match: {p1p2}, P2-L2P1 match: {p2p1})");
-                    return (p1p1 && p2p2) || (p1p2 && p2p1);
-
-                case DxfCircle circle1 when entity2 is DxfCircle circle2:
-                    bool centerMatch = PointEquals(circle1.Center, circle2.Center, tolerance);
-                    bool radiusMatch = Math.Abs(circle1.Radius - circle2.Radius) < tolerance;
-                    Debug.WriteLine($"[DEBUG] CircleCompare: C1=({circle1.Center}, R={circle1.Radius}) | C2=({circle2.Center}, R={circle2.Radius})");
-                    Debug.WriteLine($"[DEBUG] CircleCompare: CenterMatch={centerMatch}, RadiusMatch={radiusMatch}");
-                    return centerMatch && radiusMatch;
-
-                case DxfArc arc1 when entity2 is DxfArc arc2:
-                    // TODO: Robust angle comparison (normalize to 0-360, handle wrap-around)
-                    // For now, using modulo which is not perfectly robust for all cases like 0 vs 360.
-                    // A better way: convert angles to vectors or check if one angle is equivalent to other + k*360.
-                    double normalizedStartAngle1 = (arc1.StartAngle % 360 + 360) % 360;
-                    double normalizedEndAngle1 = (arc1.EndAngle % 360 + 360) % 360;
-                    double normalizedStartAngle2 = (arc2.StartAngle % 360 + 360) % 360;
-                    double normalizedEndAngle2 = (arc2.EndAngle % 360 + 360) % 360;
-
-                    bool arcCenterMatch = PointEquals(arc1.Center, arc2.Center, tolerance);
-                    bool arcRadiusMatch = Math.Abs(arc1.Radius - arc2.Radius) < tolerance;
-                    bool arcStartAngleMatch = Math.Abs(normalizedStartAngle1 - normalizedStartAngle2) < tolerance || Math.Abs(normalizedStartAngle1 - normalizedStartAngle2 - 360) < tolerance || Math.Abs(normalizedStartAngle1 - normalizedStartAngle2 + 360) < tolerance;
-                    bool arcEndAngleMatch = Math.Abs(normalizedEndAngle1 - normalizedEndAngle2) < tolerance || Math.Abs(normalizedEndAngle1 - normalizedEndAngle2 - 360) < tolerance || Math.Abs(normalizedEndAngle1 - normalizedEndAngle2 + 360) < tolerance;
-
-                    Debug.WriteLine($"[DEBUG] ArcCompare: A1=C({arc1.Center}),R({arc1.Radius}),SA({arc1.StartAngle}),EA({arc1.EndAngle})");
-                    Debug.WriteLine($"[DEBUG] ArcCompare: A2=C({arc2.Center}),R({arc2.Radius}),SA({arc2.StartAngle}),EA({arc2.EndAngle})");
-                    Debug.WriteLine($"[DEBUG] ArcCompare: NormA1=SA({normalizedStartAngle1}),EA({normalizedEndAngle1}) | NormA2=SA({normalizedStartAngle2}),EA({normalizedEndAngle2})");
-                    Debug.WriteLine($"[DEBUG] ArcCompare: CenterMatch={arcCenterMatch}, RadiusMatch={arcRadiusMatch}, StartAngleMatch={arcStartAngleMatch}, EndAngleMatch={arcEndAngleMatch}");
-                    return arcCenterMatch && arcRadiusMatch && arcStartAngleMatch && arcEndAngleMatch;
-
-                case DxfLwPolyline poly1 when entity2 is DxfLwPolyline poly2:
-                    Debug.WriteLine($"[DEBUG] LWPolylineCompare: VCount1={poly1.Vertices.Count}, VCount2={poly2.Vertices.Count}, Closed1={poly1.IsClosed}, Closed2={poly2.IsClosed}");
-                    if (poly1.Vertices.Count != poly2.Vertices.Count || poly1.IsClosed != poly2.IsClosed) return false;
-                    for(int i=0; i < poly1.Vertices.Count; i++)
-                    {
-                        var v1 = poly1.Vertices[i];
-                        var v2 = poly2.Vertices[i];
-                        // LwPolyline vertices are DxfLwPolylineVertex, which have X, Y, Bulge. Z is from polyline's Elevation.
-                        // Using PointEquals for X,Y comparison by creating temporary DxfPoints.
-                        bool xyMatch = PointEquals(new DxfPoint(v1.X, v1.Y, 0), new DxfPoint(v2.X, v2.Y, 0), tolerance);
-                        bool bulgeMatch = Math.Abs(v1.Bulge - v2.Bulge) < tolerance;
-                        Debug.WriteLine($"[DEBUG] LWPolylineCompare: V{i} P1=({v1.X},{v1.Y},B={v1.Bulge}) | P2=({v2.X},{v2.Y},B={v2.Bulge}) | XYMatch={xyMatch}, BulgeMatch={bulgeMatch}");
-                        if (!xyMatch || !bulgeMatch)
-                        {
-                            return false;
-                        }
-                    }
-                    return true;
-                // TODO: Add other entity types as needed
-                default:
-                    Debug.WriteLine($"[WARNING] AreEntitiesGeometricallyEquivalent: Unhandled entity type {entity1.GetType().Name} for comparison.");
-                    return false;
-            }
-        }
-
         private void ReconcileTrajectoryEntities(Models.Configuration config, DxfFile? currentDoc)
         {
             if (config == null || currentDoc == null || config.SprayPasses == null || !currentDoc.Entities.Any())
@@ -3671,84 +3453,30 @@ namespace RobTeach.Views
             }
 
             Debug.WriteLine($"[DEBUG] ReconcileTrajectoryEntities: Starting. Document has {currentDoc.Entities.Count()} entities.");
-            // Debug.WriteLine("[JULES_DEBUG] ReconcileTrajectoryEntities: Entering method.");
 
-            // Create a list of available entities from the document to "consume" as they are matched
-            // This helps handle cases where multiple identical geometric entities might exist in the DXF,
-            // ensuring each trajectory maps to a unique live entity if possible.
-            List<DxfEntity> availableDocEntities = new List<DxfEntity>(currentDoc.Entities);
+            var entityHandleMap = currentDoc.Entities.ToDictionary(e => e.Handle.ToString("X"), e => e);
 
             foreach (var pass in config.SprayPasses)
             {
                 if (pass.Trajectories == null)
                 {
-                    // Debug.WriteLine($"[JULES_DEBUG] ReconcileTrajectoryEntities: Pass '{pass.PassName}' has null trajectories. Skipping.");
                     continue;
                 }
-                // Debug.WriteLine($"[JULES_DEBUG] ReconcileTrajectoryEntities: Processing pass '{pass.PassName}'. Initial trajectory order:");
-                // for(int k=0; k < pass.Trajectories.Count; k++)
-                // {
-                //     Debug.WriteLine($"[JULES_DEBUG]   Pre-Reconcile: Pass[{pass.PassName}]-Trajectory[{k}]: {pass.Trajectories[k].ToString()}");
-                // }
 
-                for (int i = 0; i < pass.Trajectories.Count; i++)
+                foreach (var trajectory in pass.Trajectories)
                 {
-                    var trajectory = pass.Trajectories[i];
-                    if (trajectory.OriginalDxfEntity == null && trajectory.PrimitiveType != "Polygon")
+                    if (!string.IsNullOrEmpty(trajectory.OriginalEntityHandle) && entityHandleMap.TryGetValue(trajectory.OriginalEntityHandle, out var matchedEntity))
                     {
-                        Debug.WriteLine($"[DEBUG] ReconcileTrajectoryEntities: Trajectory {i} in pass '{pass.PassName}' has null OriginalDxfEntity and is not a Polygon.");
-                        continue;
-                    }
-
-                    DxfEntity? matchedEntity = null;
-                    int matchedEntityIndexInAvailableList = -1;
-
-                    for (int j = 0; j < availableDocEntities.Count; j++)
-                    {
-                        if (trajectory.PrimitiveType == "Polygon")
-                        {
-                            if (availableDocEntities[j] is DxfLwPolyline polyline)
-                            {
-                                // A simple comparison for polygons could be to check if they have the same number of vertices
-                                // and if the first vertex is the same. This is not a robust check, but it's a start.
-                                if (polyline.Vertices.Count == trajectory.Points.Count &&
-                                    PointEquals(new DxfPoint(polyline.Vertices[0].X, polyline.Vertices[0].Y, polyline.Elevation), new DxfPoint(trajectory.Points[0].X, trajectory.Points[0].Y, trajectory.PolygonZ)))
-                                {
-                                    matchedEntity = availableDocEntities[j];
-                                    matchedEntityIndexInAvailableList = j;
-                                    break;
-                                }
-                            }
-                        }
-                        else if (AreEntitiesGeometricallyEquivalent(trajectory.OriginalDxfEntity, availableDocEntities[j]))
-                        {
-                            matchedEntity = availableDocEntities[j];
-                            matchedEntityIndexInAvailableList = j;
-                            break;
-                        }
-                    }
-
-                    if (matchedEntity != null)
-                    {
-                        trajectory.OriginalDxfEntity = matchedEntity; // Update reference to the live entity from the document
-                        // availableDocEntities.RemoveAt(matchedEntityIndexInAvailableList); // Allow re-matching for shared entities across passes
-                        Debug.WriteLine($"[DEBUG] ReconcileTrajectoryEntities: Reconciled trajectory entity: {matchedEntity.GetType().Name} (Index in availableDocEntities was {matchedEntityIndexInAvailableList}, not removing).");
+                        trajectory.OriginalDxfEntity = matchedEntity;
+                        Debug.WriteLine($"[DEBUG] ReconcileTrajectoryEntities: Reconciled trajectory entity with handle {trajectory.OriginalEntityHandle}.");
                     }
                     else
                     {
-                        // If no match, the trajectory.OriginalDxfEntity remains the deserialized instance.
-                        // Highlighting will likely fail for this specific entity.
-                        Debug.WriteLine($"[WARNING] ReconcileTrajectoryEntities: Could not find a matching live entity for deserialized {trajectory.PrimitiveType}.");
+                        Debug.WriteLine($"[WARNING] ReconcileTrajectoryEntities: Could not find a matching live entity for trajectory with handle {trajectory.OriginalEntityHandle}.");
                     }
                 }
-                // Debug.WriteLine($"[JULES_DEBUG] ReconcileTrajectoryEntities: Finished processing pass '{pass.PassName}'. Final trajectory order for this pass:");
-                // for(int k=0; k < pass.Trajectories.Count; k++)
-                // {
-                //     Debug.WriteLine($"[JULES_DEBUG]   Post-Reconcile: Pass[{pass.PassName}]-Trajectory[{k}]: {pass.Trajectories[k].ToString()}");
-                // }
             }
             Debug.WriteLine("[DEBUG] ReconcileTrajectoryEntities: Finished.");
-            // Debug.WriteLine("[JULES_DEBUG] ReconcileTrajectoryEntities: Exiting method.");
         }
 
 
@@ -4166,42 +3894,34 @@ namespace RobTeach.Views
             return transformedBounds;
         }
 
-        private void UpdateShapesOnCanvas(List<System.Windows.Shapes.Shape?> shapes)
+        private void UpdateShapesOnCanvas(List<(DxfEntity, System.Windows.Shapes.Shape?)> shapesAndEntities)
         {
-            if (shapes == null)
+            if (shapesAndEntities == null)
             {
-                AppLogger.Log("[MainWindow] UpdateShapesOnCanvas: shapes list is null.", LogLevel.Warning);
+                AppLogger.Log("[MainWindow] UpdateShapesOnCanvas: shapesAndEntities list is null.", LogLevel.Warning);
                 return;
             }
 
-            AppLogger.Log($"[MainWindow] UpdateShapesOnCanvas: Processing {shapes.Count} shapes.", LogLevel.Debug);
-            var nonNullShapes = shapes.Where(s => s != null).Select(s => s!).ToList();
-            AppLogger.Log($"[MainWindow] UpdateShapesOnCanvas: Found {nonNullShapes.Count} non-null shapes.", LogLevel.Debug);
-
-            int entityIndex = 0;
-            foreach (var shape in nonNullShapes)
-            {
-                shape.Stroke = DefaultStrokeBrush;
-                shape.StrokeThickness = DefaultStrokeThickness;
-                if (shape is System.Windows.Shapes.Path path)
-                {
-                    path.Fill = Brushes.Transparent;
-                }
-
-                // Add event handler and map to entity
-                if (_currentDxfDocument != null && entityIndex < _currentDxfDocument.Entities.Count())
-                {
-                    var entity = _currentDxfDocument.Entities.ElementAt(entityIndex);
-                    shape.MouseLeftButtonDown += OnCadEntityClicked;
-                    _wpfShapeToDxfEntityMap[shape] = entity;
-                }
-                entityIndex++;
-            }
+            AppLogger.Log($"[MainWindow] UpdateShapesOnCanvas: Processing {shapesAndEntities.Count} shapes.", LogLevel.Debug);
 
             CadCanvas.Children.Clear();
-            foreach (var shape in nonNullShapes)
+            _wpfShapeToDxfEntityMap.Clear();
+
+            foreach (var (entity, shape) in shapesAndEntities)
             {
-                CadCanvas.Children.Add(shape);
+                if (shape != null)
+                {
+                    shape.Stroke = DefaultStrokeBrush;
+                    shape.StrokeThickness = DefaultStrokeThickness;
+                    if (shape is System.Windows.Shapes.Path path)
+                    {
+                        path.Fill = Brushes.Transparent;
+                    }
+
+                    shape.MouseLeftButtonDown += OnCadEntityClicked;
+                    _wpfShapeToDxfEntityMap[shape] = entity;
+                    CadCanvas.Children.Add(shape);
+                }
             }
 
             // Force layout update
@@ -4209,7 +3929,7 @@ namespace RobTeach.Views
             CadCanvas.InvalidateVisual();
 
             // Update bounding box
-            if (nonNullShapes.Any())
+            if (shapesAndEntities.Any(se => se.Item2 != null))
             {
                 PerformFitToView();
             }
